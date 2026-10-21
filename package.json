@@ -1,0 +1,39 @@
+{
+  "name": "credit-card-manager",
+  "private": true,
+  "version": "2.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc --noEmit && tsc -p tsconfig.api.json && vite build",
+    "preview": "vite preview",
+    "build:cdn": "node scripts/build-cdn-fallback.mjs",
+    "db:migrate": "node scripts/migrate-db.mjs",
+    "db:export:sqlite": "python scripts/export-sqlite.py",
+    "db:import:neon": "node scripts/import-neon.mjs",
+    "test:billing": "node scripts/test-billing.mjs"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.850.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "bcryptjs": "^3.0.2",
+    "busboy": "^1.6.0",
+    "dotenv": "^16.6.1",
+    "lucide-react": "^0.468.0",
+    "pg": "^8.16.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^6.3.5"
+  },
+  "devDependencies": {
+    "@types/busboy": "^1.5.4",
+    "@types/node": "^22.15.30",
+    "@types/pg": "^8.15.4",
+    "@types/react": "^18.3.23",
+    "@types/react-dom": "^18.3.7",
+    "typescript": "5.9.3"
+  }
+}

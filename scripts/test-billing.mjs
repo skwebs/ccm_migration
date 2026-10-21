@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import { cycleFor } from '../api/billing.js';
+const end={billing_rule:'end',billing_day:5,due_days:20};
+assert.deepEqual(cycleFor(end,'2026-10-05'),{start:'2026-09-06',end:'2026-10-05',statement_date:'2026-10-05',due_date:'2026-10-25'});
+assert.deepEqual(cycleFor(end,'2026-10-06'),{start:'2026-10-06',end:'2026-11-05',statement_date:'2026-11-05',due_date:'2026-11-25'});
+const start={billing_rule:'start',billing_day:5,due_days:20};
+assert.deepEqual(cycleFor(start,'2026-10-04'),{start:'2026-09-05',end:'2026-10-04',statement_date:'2026-10-04',due_date:'2026-10-24'});
+assert.deepEqual(cycleFor(start,'2026-10-05'),{start:'2026-10-05',end:'2026-11-04',statement_date:'2026-11-04',due_date:'2026-11-24'});
+const end31={billing_rule:'end',billing_day:31,due_days:0};
+assert.deepEqual(cycleFor(end31,'2024-02-29'),{start:'2024-02-01',end:'2024-02-29',statement_date:'2024-02-29',due_date:'2024-02-29'});
+assert.deepEqual(cycleFor(end31,'2024-03-01'),{start:'2024-03-01',end:'2024-03-31',statement_date:'2024-03-31',due_date:'2024-03-31'});
+console.log('Billing cycle tests passed (end/start rules, boundary dates, leap-year month-end clamping).');
