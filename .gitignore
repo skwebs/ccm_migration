@@ -11,3 +11,5 @@ storage/attachments/
 
 sqlite-export.json
 *.sqlite-export.json
+ccm_migration.zip
+.vercel
