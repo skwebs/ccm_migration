@@ -20,7 +20,7 @@ This is the migration build of the existing Card Ledger / Credit Card Manager. T
 - TypeScript serverless API under `api/`.
 - Neon PostgreSQL, using server-only `DATABASE_URL`.
 - Optional private Cloudflare R2 bucket for receipt images.
-- Vercel deployment; a custom domain or the existing `/credit-card/` path can be routed through `vercel.json`.
+- Vercel deployment at the domain root (for example, `https://cred.isatish.in/`).
 
 ## 1. Configure a test environment
 
@@ -83,7 +83,7 @@ npm run build
 
 Deploy the project to Vercel and add `DATABASE_URL`, `SESSION_SECRET`, and (if using receipts) the R2 variables under Project Settings → Environment Variables. Run the numbered SQL migrations against the intended Neon database before testing the deployment.
 
-`vite.config.ts` keeps the existing `/credit-card/` production base, and `vercel.json` contains rewrites for that path and the API. Verify the generated routes in a Vercel preview before connecting a custom domain or switching traffic. If deploying to a domain root instead of `/credit-card/`, adjust the Vite base and PWA manifest deliberately; do not mix the two configurations.
+`vite.config.ts` uses `/` as the production base because this deployment serves from the domain root. `vercel.json` keeps the API function configuration and relies on Vercel file-system routing for `/api`. The PWA manifest and service worker are also configured for root scope. Verify the generated routes in a Vercel preview before promoting the deployment.
 
 ## 6. Pre-cutover checklist
 

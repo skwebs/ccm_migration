@@ -1,13 +1,5 @@
 {
   "functions": {
     "api/index.ts": { "memory": 1024, "maxDuration": 30 }
-  },
-  "rewrites": [
-    { "source": "/credit-card/api", "destination": "/api/index" },
-    { "source": "/credit-card/api/(.*)", "destination": "/api/index" },
-    { "source": "/credit-card/assets/(.*)", "destination": "/assets/$1" },
-    { "source": "/credit-card/icons/(.*)", "destination": "/icons/$1" },
-    { "source": "/credit-card/(.*)", "destination": "/$1" },
-    { "source": "/credit-card", "destination": "/" }
-  ]
+  }
 }

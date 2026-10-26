@@ -1,6 +1,6 @@
 # Existing frontend API contract
 
-The legacy frontend originally called `/api/index.php?action=<action>`. The migration build changes only the central request helper to `/api?action=<action>` and retains same-origin credentials plus `X-CSRF-Token`. Vercel rewrites preserve the existing `/credit-card/` subpath. Action names and response fields remain stable.
+The legacy frontend originally called `/api/index.php?action=<action>`. The migration build changes only the central request helper to `/api?action=<action>` and retains same-origin credentials plus `X-CSRF-Token`. The app is deployed at the domain root, and the frontend calls the same-origin `/api` endpoint directly. Action names and response fields remain stable.
 
 | Action | Methods | Main responsibility |
 |---|---|---|
