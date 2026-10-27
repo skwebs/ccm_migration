@@ -1,5 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-:root{font-family:Inter,Roboto,"Segoe UI",system-ui,-apple-system,BlinkMacSystemFont,sans-serif;color-scheme:dark;font-synthesis:none;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased;background:#09090b;color:#f5f5f5;accent-color:#8b5cf6}*{box-sizing:border-box}html{background:#09090b;min-width:320px;overscroll-behavior-y:contain}body{margin:0;min-width:320px;min-height:100dvh;background:#09090b;-webkit-tap-highlight-color:transparent}button,input,select,textarea{font:inherit}button{touch-action:manipulation;cursor:pointer}button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid #a78bfa;outline-offset:2px}input[type=date],input[type=datetime-local],input[type=month],input[type=time]{color-scheme:dark}input[type=checkbox]{accent-color:#8b5cf6}.safe-bottom{padding-bottom:calc(6rem + env(safe-area-inset-bottom))}.bottom-nav{padding-bottom:env(safe-area-inset-bottom)}.sheet-backdrop{background:rgba(0,0,0,.68);backdrop-filter:blur(6px)}.sheet{max-height:94dvh;overflow:auto;border-radius:1.5rem 1.5rem 0 0;padding-bottom:calc(1rem + env(safe-area-inset-bottom));overscroll-behavior:contain}.num{font-variant-numeric:tabular-nums}.scrollbar-hide{scrollbar-width:none}.scrollbar-hide::-webkit-scrollbar{display:none}::selection{background:#6d28d9;color:white}::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-thumb{background:#3f3f46;border-radius:99px}@media(min-width:700px){.sheet{border-radius:1.5rem;max-height:90vh;padding-bottom:1rem}.safe-bottom{padding-bottom:2rem}}
+:root{font-family:Inter,Roboto,"Segoe UI",system-ui,-apple-system,BlinkMacSystemFont,sans-serif;color-scheme:dark;font-synthesis:none;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased;background:#09090b;color:#f5f5f5;accent-color:#8b5cf6}*{box-sizing:border-box}html{background:#09090b;min-width:320px;overscroll-behavior-y:contain}body{margin:0;min-width:320px;min-height:100dvh;background:#09090b;-webkit-tap-highlight-color:transparent}button,input,select,textarea{font:inherit}button{touch-action:manipulation;cursor:pointer}button:focus-visible{outline:2px solid #a78bfa;outline-offset:2px}input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none;outline-offset:0}input[type=date],input[type=datetime-local],input[type=month],input[type=time]{color-scheme:dark}input[type=checkbox]{accent-color:#8b5cf6}.safe-bottom{padding-bottom:calc(6rem + env(safe-area-inset-bottom))}.bottom-nav{padding-bottom:env(safe-area-inset-bottom)}.sheet-backdrop{background:rgba(0,0,0,.68);backdrop-filter:blur(6px)}.sheet{max-height:94dvh;overflow:auto;border-radius:1.5rem 1.5rem 0 0;padding-bottom:calc(1rem + env(safe-area-inset-bottom));overscroll-behavior:contain}.num{font-variant-numeric:tabular-nums}.scrollbar-hide{scrollbar-width:none}.scrollbar-hide::-webkit-scrollbar{display:none}::selection{background:#6d28d9;color:white}::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-thumb{background:#3f3f46;border-radius:99px}@media(min-width:700px){.sheet{border-radius:1.5rem;max-height:90vh;padding-bottom:1rem}.safe-bottom{padding-bottom:2rem}}
 
 /* User-selectable display density. Keep touch targets accessible in both modes. */
 .density-compact main{padding-top:.65rem}.density-compact main section{scroll-margin-top:5rem}.density-compact .bottom-nav button{min-height:3.25rem}.density-compact .bottom-nav button span{height:1.75rem}.density-compact input:not([type=checkbox]):not([type=file]),.density-compact select,.density-compact textarea{padding-top:.65rem;padding-bottom:.65rem}.density-compact .sheet>div:last-child{padding-top:.8rem}.density-compact .sheet .space-y-4>:not([hidden])~:not([hidden]){margin-top:.75rem}.density-compact .safe-bottom{padding-bottom:calc(5.25rem + env(safe-area-inset-bottom))}.density-comfortable .safe-bottom{padding-bottom:calc(6rem + env(safe-area-inset-bottom))}
@@ -28,3 +28,29 @@
 .txn-page input[type=date]:focus,.txn-page input[type=date]:focus-visible,
 .txn-page input[type=time]:focus,.txn-page input[type=time]:focus-visible{outline:none!important;box-shadow:none!important;border-color:transparent!important}
 .txn-page label:focus-within input[type=date],.txn-page label:focus-within input[type=time]{outline:none!important;box-shadow:none!important}
+
+
+/* Focus treatment: never draw an outer outline on form controls. The control's
+   own border changes color, while composite controls keep focus on their wrapper. */
+input:focus,
+input:focus-visible,
+textarea:focus,
+textarea:focus-visible,
+select:focus,
+select:focus-visible {
+  outline: none !important;
+  outline-offset: 0 !important;
+  box-shadow: none !important;
+}
+.sheet input:not([type="checkbox"]):not([type="file"]):focus,
+.sheet textarea:focus,
+.sheet select:focus {
+  border-color: #a78bfa;
+}
+/* Inputs embedded in bordered transaction rows must not create a second border. */
+.txn-page label:focus-within input,
+.txn-page label:focus-within textarea,
+.txn-page label:focus-within select {
+  outline: none !important;
+  box-shadow: none !important;
+}

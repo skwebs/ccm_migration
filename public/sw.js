@@ -1,6 +1,6 @@
 /* Card Ledger PWA worker. API responses and private records are deliberately never cached. */
 const APP_BASE = new URL('./', self.registration.scope).pathname;
-const CACHE_NAME = 'card-ledger-shell-v4';
+const CACHE_NAME = 'card-ledger-shell-v5';
 const SHELL = [APP_BASE, `${APP_BASE}manifest.webmanifest`, `${APP_BASE}icons/icon-192.png`, `${APP_BASE}icons/icon-512.png`];
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()));

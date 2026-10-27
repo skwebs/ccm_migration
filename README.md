@@ -5,6 +5,8 @@ This is the migration build of the existing Card Ledger / Credit Card Manager. T
 ## Existing functionality retained in the baseline
 
 - Responsive dark UI, dashboard, Transactions, Settings, Card details, Payments, and bottom navigation.
+- Persistent IndexedDB bootstrap cache for instant stale-data display, followed by background server revalidation.
+- Optimistic transaction create/edit/delete, card create/edit, and payment-history create/delete with rollback on API failure and a non-blocking sync status.
 - First-run account setup, login/logout, CSRF token, remembered login, and server-side login throttling.
 - Credit card create/edit/archive, bank, last four digits, credit limit, billing day/rule, and due days.
 - Transaction create/edit/delete, integer-paise amounts, transaction timestamp, settlement date, UPI/online/swipe methods, UPI app snapshot, category, tags, notes, and optional receipt attachment.
@@ -116,3 +118,10 @@ scripts/test-billing.mjs        Billing-cycle boundary tests
 vercel.json                     Function and subpath routing
 .env.example                    Demo-only environment template
 ```
+
+
+## Local cache and synchronization
+
+The frontend stores the last authenticated bootstrap snapshot in browser IndexedDB and shows it before background session validation/revalidation completes. It refreshes on reconnect and when returning to a visible tab. Transaction create/edit/delete updates the UI immediately and rolls back that transaction if the API rejects the change. The API and NeonDB remain authoritative; a successful write is followed by a bootstrap refresh.
+
+The local snapshot contains financial records and is not encrypted by the browser. Use this only on a trusted device/profile, keep the device lock enabled, and log out when sharing the device. Logout and an unauthenticated session response clear the cached snapshot. Browser storage may be cleared by the user or browser at any time. This is not a durable offline write queue: failed mutations are rolled back rather than silently queued.

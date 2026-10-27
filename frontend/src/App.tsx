@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { clearBootstrapCache, readBootstrapCache, writeBootstrapCache, type BootstrapSnapshot } from './data-cache';
 import {
   Activity, ArrowDownLeft, ArrowLeft, CalendarDays, Check, ChevronDown, ChevronRight,
   Clock3, CreditCard, Eye, EyeOff, Globe, Home, ImagePlus, LogOut, MoreHorizontal, Plus,
@@ -9,11 +10,12 @@ import {
 type Card = { id:number; name:string; bank_name:string; last4:string; credit_limit_minor:number|null; billing_day:number; billing_rule:'end'|'start'; due_days:number; active:number; current_minor?:number; dues_minor?:number; cycle_start?:string; cycle_end?:string };
 type Txn = { id:number; card_id:number; card_name:string; particular:string; amount_minor:number; txn_at:string; settlement_date:string; payment_method:'swipe'|'online'|'upi'; upi_app_id:number|null; upi_app_name:string; notes:string; category?:string; tags?:string; has_attachment?:number };
 type Statement = { id:number; card_id:number; card_name:string; bank_name:string; cycle_start:string; cycle_end:string; statement_date:string; due_date:string; amount_minor:number; bill_amount_minor?:number; bank_amount_minor?:number|null; confirmed_at?:string|null; is_locked?:number; paid_minor:number; outstanding_minor:number; status:string };
-type Payment = { id:number; card_id:number; card_name:string; amount_minor:number; paid_at:string; reference:string; notes:string; allocated_minor:number; unallocated_minor:number };
+type Payment = { id:number; card_id:number; card_name:string; amount_minor:number; paid_at:string; reference:string; notes:string; allocated_minor:number; unallocated_minor:number; pending?:boolean };
 type AppItem = { id:number; name:string; active:number };
 type Status = { setup_required:boolean; authenticated:boolean; username:string|null; csrf:string };
 type Tab = 'dashboard'|'transactions'|'settings'|'card'|'payments';
 type Filters = { month:string; card_id:string; method:string; upi_app_id:string; category:string; q:string; from:string; to:string };
+type BootstrapData = { cards:Card[]; transactions:Txn[]; apps:AppItem[]; dashboard:any; payments:Payment[]; statements:Statement[]; settings:{monthly_budget_minor:number|string;categories?:string[]} };
 
 const APP_BASE = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
 const API = `${APP_BASE}/api`;
@@ -49,7 +51,7 @@ function Button({children,onClick,variant='primary',className='',type='button',d
   return <button type={type} disabled={disabled} onClick={onClick} className={`${base} ${styles[variant]} ${className}`}>{children}</button>;
 }
 function Field({label,children,required=false}:{label:string;children:React.ReactNode;required?:boolean}) { return <label className="block min-w-0"><span className="mb-2 block text-xs font-semibold text-neutral-400">{label}{required&&<span className="text-red-400"> *</span>}</span>{children}</label>; }
-const inputClass='w-full rounded-2xl border border-neutral-700 bg-neutral-900 px-3.5 py-3 text-base text-neutral-100 outline-none transition placeholder:text-neutral-600 focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20';
+const inputClass='w-full rounded-2xl border border-neutral-700 bg-neutral-900 px-3.5 py-3 text-base text-neutral-100 outline-none transition placeholder:text-neutral-600 focus:border-violet-400 focus:ring-0 focus-visible:outline-none focus-visible:ring-0';
 function Modal({title,onClose,children,wide=false}:{title:string;onClose:()=>void;children:React.ReactNode;wide?:boolean}) {
   useEffect(()=>{ const old=document.body.style.overflow; document.body.style.overflow='hidden'; const onKey=(e:KeyboardEvent)=>{if(e.key==='Escape')onClose();}; window.addEventListener('keydown',onKey); return()=>{document.body.style.overflow=old;window.removeEventListener('keydown',onKey)}; },[onClose]);
   return <div className="sheet-backdrop fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}><section role="dialog" aria-modal="true" aria-label={title} className={`sheet w-full border border-neutral-800 bg-neutral-950 shadow-2xl ${wide?'sm:max-w-2xl':'sm:max-w-lg'}`}><div className="sticky top-0 z-10 flex items-center justify-between border-b border-neutral-800 bg-neutral-950/95 px-4 py-4 backdrop-blur"><div className="text-base font-bold text-neutral-100">{title}</div><button type="button" onClick={onClose} aria-label="Close" className="rounded-full p-2 text-neutral-400 hover:bg-neutral-800"><X size={20}/></button></div><div className="p-4 sm:p-5">{children}</div></section></div>;
@@ -71,7 +73,7 @@ function cycleFor(card:Card,date:string) {
 }
 
 export default function App() {
-  const [status,setStatus]=useState<Status|null>(null); const [loading,setLoading]=useState(true); const [error,setError]=useState(''); const [toast,setToast]=useState<{message:string;kind:'success'|'error'|'info'}|null>(null);
+  const [status,setStatus]=useState<Status|null>(null); const [loading,setLoading]=useState(true); const [error,setError]=useState(''); const [syncState,setSyncState]=useState<'syncing'|'synced'|'offline'|'error'>('syncing'); const [dataReady,setDataReady]=useState(false); const lastSyncRef=useRef(0); const [toast,setToast]=useState<{message:string;kind:'success'|'error'|'info'}|null>(null);
   const [tab,setTab]=useState<Tab>('dashboard'); const [cards,setCards]=useState<Card[]>([]); const [txns,setTxns]=useState<Txn[]>([]); const [statements,setStatements]=useState<Statement[]>([]); const [payments,setPayments]=useState<Payment[]>([]); const [apps,setApps]=useState<AppItem[]>([]); const [dashboard,setDashboard]=useState<any>(null); const [activeCard,setActiveCard]=useState<Card|null>(null); const [cycle,setCycle]=useState('current'); const [cycleSheetOpen,setCycleSheetOpen]=useState(false);
   const [modal,setModal]=useState<'card'|'txn'|'payment'|'upi'|null>(null); const [editTxn,setEditTxn]=useState<Txn|null>(null); const [editCard,setEditCard]=useState<Card|null>(null);
   const [filters,setFilters]=useState<Filters>({month:'',card_id:'',method:'',upi_app_id:'',category:'',q:'',from:'',to:''}); const [filtersOpen,setFiltersOpen]=useState(false);
@@ -114,20 +116,84 @@ export default function App() {
   },[]);
 
   const refreshStatus=useCallback(async()=>{const s=await request<Status>('status');if(s.csrf)sessionStorage.setItem('ccm-csrf',s.csrf);setStatus(s);return s},[]);
-  const loadData=useCallback(async()=>{
-    // One authenticated bootstrap request avoids six concurrent PHP/SQLite requests on shared hosting.
-    const b=await request<{cards:Card[];transactions:Txn[];apps:AppItem[];dashboard:any;payments:Payment[];statements:Statement[];settings:{monthly_budget_minor:number|string;categories?:string[]}}>('bootstrap');
+  const applyBootstrap=useCallback((b:BootstrapData)=>{
     const enriched=(b.cards||[]).map(card=>({...card,...((b.dashboard?.cards||[]).find((x:Card)=>x.id===card.id)||{})}));
     setCards(enriched);setTxns(b.transactions||[]);setApps(b.apps||[]);setDashboard(b.dashboard||null);setPayments(b.payments||[]);setStatements(b.statements||[]);
     const bm=Number(b.settings?.monthly_budget_minor||0);setBudgetMinor(bm);setBudgetInput(bm?minorToRupees(bm):'');if(Array.isArray(b.settings?.categories)&&b.settings.categories.length)setCategories(b.settings.categories);
-    setActiveCard(prev=>prev?enriched.find(card=>card.id===prev.id)||prev:null);
+    setActiveCard(prev=>prev?enriched.find(card=>card.id===prev.id)||prev:null);setDataReady(true);
   },[]);
-  const boot=useCallback(async()=>{setError('');try{const s=await refreshStatus();if(s.authenticated)await loadData()}catch(e){setError((e as Error).message)}finally{setLoading(false)}},[refreshStatus,loadData]);
+  const loadData=useCallback(async()=>{
+    setSyncState('syncing');
+    try{
+      const b=await request<BootstrapData>('bootstrap');
+      applyBootstrap(b);
+      lastSyncRef.current=Date.now();setSyncState('synced');
+      return b;
+    }catch(e){setSyncState(navigator.onLine?'error':'offline');throw e;}
+  },[applyBootstrap]);
+  const boot=useCallback(async()=>{
+    setError('');
+    let cached:BootstrapSnapshot|null=null;
+    try{
+      cached=await readBootstrapCache();
+      if(cached?.data){
+        applyBootstrap(cached.data as BootstrapData);
+        // Show the last known data immediately while the server validates the session.
+        setStatus({setup_required:false,authenticated:true,username:null,csrf:sessionStorage.getItem('ccm-csrf')||''});
+        setSyncState('syncing');setLoading(false);
+      }
+    }catch{/* A cache failure must never prevent normal server startup. */}
+    try{
+      const s=await refreshStatus();
+      if(s.authenticated){
+        await loadData();
+      }else{
+        await clearBootstrapCache().catch(()=>{});
+        setDataReady(false);setCards([]);setTxns([]);setApps([]);setDashboard(null);setPayments([]);setStatements([]);setActiveCard(null);
+      }
+    }catch(e){
+      const message=(e as Error).message;
+      if(cached?.data){setSyncState(navigator.onLine?'error':'offline');setError(navigator.onLine?`Showing saved data. Background sync failed: ${message}`:'Offline — showing the last saved data.');}
+      else {setError(message);setSyncState(navigator.onLine?'error':'offline');}
+    }finally{setLoading(false)}
+  },[applyBootstrap,refreshStatus,loadData]);
   useEffect(()=>{void boot()},[boot]);
-  const perform=async(fn:()=>Promise<any>,success?:string)=>{setBusy(true);setError('');try{await fn();await loadData();if(success)notify(success);return true}catch(e){const m=(e as Error).message;setError(m);notify(m,'error');return false}finally{setBusy(false)}};
+  useEffect(()=>{
+    if(!dataReady||!status?.authenticated)return;
+    const snapshot:BootstrapSnapshot={version:1,savedAt:Date.now(),data:{cards,transactions:txns,apps,dashboard,payments,statements,settings:{monthly_budget_minor:budgetMinor,categories}}};
+    void writeBootstrapCache(snapshot).catch(()=>{});
+  },[dataReady,status?.authenticated,cards,txns,apps,dashboard,payments,statements,budgetMinor,categories]);
+  useEffect(()=>{
+    const syncIfNeeded=()=>{if(document.visibilityState==='visible'&&navigator.onLine&&status?.authenticated&&Date.now()-lastSyncRef.current>20000)void loadData().catch(()=>{});};
+    const onOnline=()=>{if(status?.authenticated)void refreshStatus().then(async s=>{if(s.authenticated){await loadData();return;}await clearBootstrapCache();setDataReady(false);setCards([]);setTxns([]);setApps([]);setDashboard(null);setPayments([]);setStatements([]);setActiveCard(null);}).catch(()=>{});};
+    window.addEventListener('online',onOnline);document.addEventListener('visibilitychange',syncIfNeeded);
+    return()=>{window.removeEventListener('online',onOnline);document.removeEventListener('visibilitychange',syncIfNeeded)};
+  },[status?.authenticated,loadData,refreshStatus]);
+  const perform=async(fn:()=>Promise<any>,success?:string)=>{
+    setBusy(true);setError('');setSyncState('syncing');let committed=false;
+    try{
+      await fn();committed=true;
+      try{await loadData()}catch(e){const message=(e as Error).message;setSyncState(navigator.onLine?'error':'offline');setError(`Change saved, but refresh failed: ${message}`);notify('Change saved; refresh will retry.','info');return true;}
+      if(success)notify(success);return true;
+    }catch(e){
+      const message=(e as Error).message;setSyncState(navigator.onLine?'error':'offline');
+      if(committed){setError(`Change saved, but refresh failed: ${message}`);notify('Change saved; refresh will retry.','info');return true;}
+      setError(message);notify(message,'error');return false;
+    }finally{setBusy(false)}
+  };
+  const recalcTransactionSummaries=(list:Txn[])=>{
+    const sorted=[...list].sort((a,b)=>b.txn_at.localeCompare(a.txn_at)||b.id-a.id);
+    const refreshedCards=cards.map(card=>{
+      const total=list.filter(t=>t.card_id===card.id&&!!card.cycle_start&&!!card.cycle_end&&t.settlement_date>=card.cycle_start&&t.settlement_date<=card.cycle_end).reduce((sum,t)=>sum+Number(t.amount_minor||0),0);
+      return {...card,current_minor:total};
+    });
+    setCards(refreshedCards);
+    setDashboard((prev:any)=>prev?{...prev,cards:refreshedCards.filter(c=>c.active),current_expenses_minor:refreshedCards.filter(c=>c.active).reduce((sum,c)=>sum+Number(c.current_minor||0),0),latest:sorted.slice(0,5)}:prev);
+    setTxns(list);
+  };
   const openCard=(card:Card)=>{setActiveCard(card);setCycle('current');setTab('card')};
   const startTxn=(card?:Card|null,txn?:Txn|null)=>{setActiveCard(card||(tab==='card'?activeCard:null));setEditTxn(txn||null);setModal('txn')};
-  const logOut=async()=>{setBusy(true);setError('');try{await request('logout','POST');sessionStorage.removeItem('ccm-csrf');const s=await request<Status>('status');setStatus(s);setCards([]);setTxns([]);setDashboard(null);setStatements([]);setPayments([]);setApps([]);setActiveCard(null);setToast({message:'You have been logged out.',kind:'info'});}catch(e){const m=(e as Error).message;setError(m);notify(m,'error')}finally{setBusy(false)}};
+  const logOut=async()=>{setBusy(true);setError('');try{await request('logout','POST');sessionStorage.removeItem('ccm-csrf');await clearBootstrapCache().catch(()=>{});setDataReady(false);const s=await request<Status>('status');setStatus(s);setCards([]);setTxns([]);setDashboard(null);setStatements([]);setPayments([]);setApps([]);setActiveCard(null);setToast({message:'You have been logged out.',kind:'info'});}catch(e){const m=(e as Error).message;setError(m);notify(m,'error')}finally{setBusy(false)}};
 
   const shownTxns=useMemo(()=>{
     let list=[...txns];if(filters.month)list=list.filter(t=>t.txn_at.slice(0,7)===filters.month);if(filters.card_id)list=list.filter(t=>String(t.card_id)===filters.card_id);if(filters.method)list=list.filter(t=>t.payment_method===filters.method);if(filters.upi_app_id)list=list.filter(t=>String(t.upi_app_id||'')===filters.upi_app_id);if(filters.category)list=list.filter(t=>(t.category||'')===filters.category);if(filters.q)list=list.filter(t=>(`${t.particular} ${t.card_name} ${t.notes} ${t.upi_app_name}`).toLowerCase().includes(filters.q.toLowerCase()));if(filters.from)list=list.filter(t=>t.txn_at.slice(0,10)>=filters.from);if(filters.to)list=list.filter(t=>t.txn_at.slice(0,10)<=filters.to);
@@ -160,18 +226,86 @@ export default function App() {
     await request('transaction-attachment','POST',form);
   };
   const saveTransaction=async(data:any,file:File|null)=>{
-    setBusy(true);setError('');
+    setBusy(true);setError('');setSyncState('syncing');
+    const isEdit=!!editTxn;
+    const original=editTxn;
+    const optimisticId=isEdit?editTxn!.id:-Date.now();
+    const selectedCard=cards.find(c=>c.id===Number(data.card_id));
+    const selectedApp=apps.find(a=>a.id===Number(data.upi_app_id));
+    const optimistic:Txn={id:optimisticId,card_id:Number(data.card_id),card_name:selectedCard?.name||'Card',particular:String(data.particular||''),amount_minor:Number(data.amount_minor||0),txn_at:String(data.txn_at||'').replace('T',' '),settlement_date:String(data.settlement_date||''),payment_method:data.payment_method||'swipe',upi_app_id:data.upi_app_id==null?null:Number(data.upi_app_id),upi_app_name:data.payment_method==='upi'?(selectedApp?.name||''): '',notes:String(data.notes||''),category:String(data.category||''),tags:String(data.tags||''),has_attachment:original?.has_attachment||0};
+    const optimisticList=isEdit?txns.map(t=>t.id===original!.id?optimistic:t):[optimistic,...txns];
+    recalcTransactionSummaries(optimisticList);
+    setModal(null);setEditTxn(null);
+    // Persist the optimistic view immediately; the database request continues in the background.
+    const tempSnapshot:BootstrapSnapshot={version:1,savedAt:Date.now(),data:{cards,transactions:optimisticList,apps,dashboard,payments,statements,settings:{monthly_budget_minor:budgetMinor,categories}}};
+    void writeBootstrapCache(tempSnapshot).catch(()=>{});
+    let committed=false;
+    let attachmentError='';
     try{
       let id:number;
-      if(editTxn){await request('transactions','PUT',{...data,id:editTxn.id});id=editTxn.id;}
+      if(isEdit){await request('transactions','PUT',{...data,id:original!.id});id=original!.id;}
       else{const result=await request<{id:number}>('transactions','POST',data);id=Number(result.id);}
-      setModal(null);
-      let attachmentError='';
+      committed=true;
       if(file){try{await uploadAttachment(id,file)}catch(e){attachmentError=(e as Error).message}}
-      await loadData();
+      try{await loadData();}catch{setSyncState(navigator.onLine?'error':'offline');}
       if(attachmentError){const message=`Expense saved, but the attachment could not be uploaded: ${attachmentError}`;setError(message);notify(message,'error')}
-      else notify(editTxn?'Transaction updated':'Transaction saved');
-    }catch(e){const message=(e as Error).message;setError(message);notify(message,'error')}
+      else notify(isEdit?'Transaction updated':'Transaction saved');
+    }catch(e){
+      const message=(e as Error).message;
+      if(!committed){
+        // Roll back the failed transaction; do not touch the database or unrelated records.
+        const rolledBack=isEdit?txns.map(t=>t.id===original!.id?original!:t):txns.filter(t=>t.id!==optimisticId);
+        recalcTransactionSummaries(rolledBack);
+        setError(message);setSyncState(navigator.onLine?'error':'offline');notify(`Could not save transaction. Changes were reverted. ${message}`,'error');
+        void writeBootstrapCache({version:1,savedAt:Date.now(),data:{cards,transactions:rolledBack,apps,dashboard,payments,statements,settings:{monthly_budget_minor:budgetMinor,categories}}}).catch(()=>{});
+      }else{setSyncState(navigator.onLine?'error':'offline');setError(`Transaction was saved, but refresh failed: ${message}`);notify('Transaction saved; refresh will retry in the background.','info')}
+    }finally{setBusy(false)}
+  };
+  const deleteTransactionOptimistic=async(txn:Txn)=>{
+    const next=txns.filter(t=>t.id!==txn.id);setBusy(true);setSyncState('syncing');recalcTransactionSummaries(next);setModal(null);
+    let committed=false;
+    try{await request('transactions','DELETE',undefined,{id:String(txn.id)});committed=true;try{await loadData()}catch{setSyncState(navigator.onLine?'error':'offline')}notify('Transaction deleted');}
+    catch(e){const message=(e as Error).message;if(!committed){recalcTransactionSummaries([...next,txn].sort((a,b)=>b.txn_at.localeCompare(a.txn_at)||b.id-a.id));setSyncState(navigator.onLine?'error':'offline');setError(message);notify(`Could not delete transaction. It was restored. ${message}`,'error')}else{setSyncState(navigator.onLine?'error':'offline');setError(`Transaction was deleted, but refresh failed: ${message}`);notify('Transaction deleted; refresh will retry in the background.','info')}}
+    finally{setBusy(false)}
+  };
+  const saveCardOptimistic=async(data:any)=>{
+    const original=editCard;const tempId=original?.id??-Date.now();
+    const prior=original||null;
+    const current=cards.find(c=>c.id===tempId);
+    const optimistic:Card={...(current||{} as Card),...(data as Partial<Card>),id:tempId,name:data.name,bank_name:data.bank_name,last4:data.last4,credit_limit_minor:data.credit_limit_minor,billing_day:data.billing_day,billing_rule:data.billing_rule,due_days:data.due_days,active:Number(data.active??1),current_minor:current?.current_minor||0,dues_minor:current?.dues_minor||0,cycle_start:current?.cycle_start,cycle_end:current?.cycle_end};
+    setSyncState('syncing');setBusy(true);setError('');
+    setCards(prev=>original?prev.map(c=>c.id===original.id?optimistic:c):[optimistic,...prev]);
+    if(original&&activeCard?.id===original.id)setActiveCard(optimistic);
+    setDashboard((prev:any)=>prev?{...prev,cards:original?(prev.cards||[]).map((c:Card)=>c.id===original.id?optimistic:c).filter((c:Card)=>c.active):[optimistic,...(prev.cards||[])].filter((c:Card)=>c.active)}:prev);
+    setModal(null);setEditCard(null);
+    let committed=false;
+    try{
+      await request('cards',original?'PUT':'POST',original?{...data,id:original.id}:{...data});committed=true;
+      try{await loadData()}catch{setSyncState(navigator.onLine?'error':'offline')}
+      notify(original?'Card updated':'Card added');
+    }catch(e){
+      const message=(e as Error).message;
+      if(!committed){
+        setCards(prev=>original?prev.map(c=>c.id===original.id?prior!:c):prev.filter(c=>c.id!==tempId));
+        if(original&&activeCard?.id===original.id)setActiveCard(prior);
+        setDashboard((prev:any)=>prev?{...prev,cards:original?(prev.cards||[]).map((c:Card)=>c.id===original.id?prior!:c):(prev.cards||[]).filter((c:Card)=>c.id!==tempId)}:prev);
+        setSyncState(navigator.onLine?'error':'offline');setError(message);notify(`Could not save card. Changes were reverted. ${message}`,'error');
+      }else{setSyncState(navigator.onLine?'error':'offline');setError(`Card saved, but refresh failed: ${message}`);notify('Card saved; refresh will retry.','info')}
+    }finally{setBusy(false)}
+  };
+  const savePaymentOptimistic=async(data:any)=>{
+    const tempId=-Date.now();const card=cards.find(c=>c.id===Number(data.card_id));
+    const optimistic:Payment={id:tempId,card_id:Number(data.card_id),card_name:card?.name||'Card',amount_minor:Number(data.amount_minor||0),paid_at:String(data.paid_at||'').replace('T',' '),reference:String(data.reference||''),notes:String(data.notes||''),allocated_minor:0,unallocated_minor:0,pending:true};
+    setPayments(prev=>[optimistic,...prev]);setModal(null);setTab('payments');setSyncState('syncing');setBusy(true);setError('');
+    let committed=false;
+    try{await request('payments','POST',data);committed=true;try{await loadData()}catch{setSyncState(navigator.onLine?'error':'offline')}notify('Payment recorded and allocations synchronized');}
+    catch(e){const message=(e as Error).message;if(!committed){setPayments(prev=>prev.filter(p=>p.id!==tempId));setSyncState(navigator.onLine?'error':'offline');setError(message);notify(`Payment failed and was removed from the list. ${message}`,'error')}else{setSyncState(navigator.onLine?'error':'offline');setError(`Payment was recorded, but refresh failed: ${message}`);notify('Payment recorded; refresh will retry.','info')}}
+    finally{setBusy(false)}
+  };
+  const deletePaymentOptimistic=async(payment:Payment)=>{
+    const previous=payment;setPayments(prev=>prev.filter(p=>p.id!==payment.id));setSyncState('syncing');setBusy(true);setError('');let committed=false;
+    try{await request('payments','DELETE',undefined,{id:String(payment.id)});committed=true;try{await loadData()}catch{setSyncState(navigator.onLine?'error':'offline')}notify('Payment deleted and allocations recalculated');}
+    catch(e){const message=(e as Error).message;if(!committed){setPayments(prev=>[...prev,previous].sort((a,b)=>b.paid_at.localeCompare(a.paid_at)||b.id-a.id));setSyncState(navigator.onLine?'error':'offline');setError(message);notify(`Could not delete payment. It was restored. ${message}`,'error')}else{setSyncState(navigator.onLine?'error':'offline');setError(`Payment was deleted, but refresh failed: ${message}`);notify('Payment deleted; refresh will retry.','info')}}
     finally{setBusy(false)}
   };
   const doInstall=async()=>{if(!installPrompt){notify('Open your browser menu and choose Install app or Add to Home screen.','info');return;}await installPrompt.prompt();await installPrompt.userChoice;setInstallPrompt(null)};
@@ -181,7 +315,7 @@ export default function App() {
 
   const navItems:[Tab,string,React.ReactNode][]=[['dashboard','Dashboard',<Home size={20}/>],['transactions','Transactions',<ReceiptText size={20}/>],['settings','Settings',<Settings size={20}/>]];
   return <div className={`min-h-dvh bg-neutral-950 text-neutral-100 ${density==='compact'?'density-compact':'density-comfortable'}`}>
-    <header className="sticky top-0 z-30 border-b border-neutral-800/90 bg-neutral-950/95 pt-[env(safe-area-inset-top)] backdrop-blur"><div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-3"><div className="flex min-w-0 items-center gap-3">{tab==='card'&&<button onClick={()=>setTab('dashboard')} aria-label="Back to dashboard" className="rounded-full p-2 text-neutral-300 hover:bg-neutral-800"><ArrowLeft size={20}/></button>}<div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-violet-600 text-white"><CreditCard size={20}/></div><div className="min-w-0"><h1 className="truncate text-lg font-bold tracking-tight">{activeTitle}</h1>{tab==='card'&&activeCard?<p className="truncate text-xs text-neutral-500">{activeCard.bank_name}{activeCard.last4?` · •••• ${activeCard.last4}`:''}</p>:<p className="text-[11px] text-neutral-500">Personal finance</p>}</div></div><div className="flex shrink-0 items-center gap-1"><button title="Refresh" aria-label="Refresh" onClick={()=>void perform(loadData,'Updated')} className="rounded-xl p-2.5 text-neutral-400 hover:bg-neutral-800"><RefreshCw size={18}/></button><button title="Log out" aria-label="Log out" onClick={()=>void logOut()} className="rounded-xl p-2.5 text-neutral-400 hover:bg-neutral-800"><LogOut size={18}/></button></div></div></header>
+    <header className="sticky top-0 z-30 border-b border-neutral-800/90 bg-neutral-950/95 pt-[env(safe-area-inset-top)] backdrop-blur"><div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-3"><div className="flex min-w-0 items-center gap-3">{tab==='card'&&<button onClick={()=>setTab('dashboard')} aria-label="Back to dashboard" className="rounded-full p-2 text-neutral-300 hover:bg-neutral-800"><ArrowLeft size={20}/></button>}<div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-violet-600 text-white"><CreditCard size={20}/></div><div className="min-w-0"><h1 className="truncate text-lg font-bold tracking-tight">{activeTitle}</h1>{tab==='card'&&activeCard?<p className="truncate text-xs text-neutral-500">{activeCard.bank_name}{activeCard.last4?` · •••• ${activeCard.last4}`:''}</p>:<p className="text-[11px] text-neutral-500">{syncState==='syncing'?'Syncing changes…':syncState==='offline'?'Offline · saved data':syncState==='error'?'Sync needs attention':'Personal finance · synced'}</p>}</div></div><div className="flex shrink-0 items-center gap-1"><span role="status" aria-live="polite" className="max-w-[4.5rem] truncate text-[10px] text-neutral-500 sm:max-w-none">{syncState==='syncing'?'Syncing':syncState==='offline'?'Offline':syncState==='error'?'Sync issue':'Saved'}</span><button title="Refresh" aria-label="Refresh data" onClick={()=>void perform(loadData,'Updated')} className="rounded-xl p-2.5 text-neutral-400 hover:bg-neutral-800"><RefreshCw size={18} className={syncState==='syncing'?'animate-spin':''}/></button><button title="Log out" aria-label="Log out" disabled={busy} onClick={()=>void logOut()} className="rounded-xl p-2.5 text-neutral-400 hover:bg-neutral-800"><LogOut size={18}/></button></div></div></header>
 
     <main className="safe-bottom mx-auto max-w-3xl px-4 pb-32 pt-4">
       {error&&<div className="mb-4 flex items-start justify-between gap-3 rounded-2xl border border-red-900 bg-red-950/70 p-3 text-sm text-red-200"><span>{error}</span><button onClick={()=>setError('')} aria-label="Dismiss error"><X size={16}/></button></div>}
@@ -221,7 +355,7 @@ export default function App() {
 
       {cycleSheetOpen&&activeCard&&<Modal title="Select billing cycle" onClose={()=>setCycleSheetOpen(false)}><p className="mb-3 text-sm text-neutral-400">Choose a cycle to view its transactions and statement details.</p><div className="max-h-[58dvh] space-y-2 overflow-y-auto overscroll-contain pr-1"><button type="button" onClick={()=>{setCycle('current');setCycleSheetOpen(false)}} className={`flex w-full items-center gap-3 rounded-2xl border p-3 text-left ${cycle==='current'?'border-violet-500 bg-violet-500/10':'border-neutral-800 bg-neutral-900'}`}><span className={`flex h-5 w-5 items-center justify-center rounded-full border ${cycle==='current'?'border-violet-400 text-violet-300':'border-neutral-600 text-transparent'}`}>{cycle==='current'&&<Check size={13}/>}</span><span className="min-w-0 flex-1"><span className="block font-semibold">Current</span><span className="mt-0.5 block text-xs text-neutral-400">{day(currentStart)} – {day(currentEnd)}</span></span><span className="text-xs font-semibold text-violet-300">Active</span></button>{cardStatements.map(st=>{const value=String(st.id);return <button key={st.id} type="button" onClick={()=>{setCycle(value);setCycleSheetOpen(false)}} className={`flex w-full items-center gap-3 rounded-2xl border p-3 text-left ${cycle===value?'border-violet-500 bg-violet-500/10':'border-neutral-800 bg-neutral-900'}`}><span className={`flex h-5 w-5 items-center justify-center rounded-full border ${cycle===value?'border-violet-400 text-violet-300':'border-neutral-600 text-transparent'}`}>{cycle===value&&<Check size={13}/>}</span><span className="min-w-0 flex-1"><span className="block font-semibold">{monthLabel(st.cycle_end.slice(0,7))}</span><span className="mt-0.5 block text-xs text-neutral-400">{day(st.cycle_start)} – {day(st.cycle_end)}</span></span><span className="shrink-0 text-right text-sm font-semibold">{money(st.amount_minor)}</span></button>})}</div><Button className="mt-4 w-full" variant="secondary" onClick={()=>setCycleSheetOpen(false)}>Close</Button></Modal>}
 
-      {tab==='payments'&&<><div className="mb-4 grid grid-cols-2 gap-2"><Metric label="Outstanding statements" value={money(statements.reduce((n,s)=>n+s.outstanding_minor,0))} tone="amber"/><Metric label="Payments recorded" value={money(payments.reduce((n,p)=>n+p.amount_minor,0))} tone="green"/></div><div className="mb-3 flex items-center justify-between"><h2 className="font-bold">Payment history</h2><Button onClick={()=>setModal('payment')}><Plus size={16}/> Record payment</Button></div>{payments.length===0?<Empty title="No bill payments yet" detail="Record a payment to reduce outstanding statement dues."/>:<div className="space-y-2">{payments.map(p=><div key={p.id} className="flex items-center justify-between gap-3 rounded-3xl border border-neutral-800 bg-neutral-900 p-4"><div className="min-w-0"><div className="truncate text-sm font-semibold">{p.card_name}</div><div className="mt-1 text-xs text-neutral-500">{day(p.paid_at)}{p.reference?` · ${p.reference}`:''}</div>{p.unallocated_minor>0&&<div className="mt-1 text-xs text-amber-300">Unallocated: {money(p.unallocated_minor)}</div>}</div><div className="flex items-center gap-2"><span className="font-bold">{money(p.amount_minor)}</span><button aria-label="Delete payment" onClick={()=>{if(confirm('Delete this payment and reverse its allocations?'))void perform(()=>request('payments','DELETE',undefined,{id:String(p.id)}),'Payment deleted')}} className="rounded-xl p-2 text-neutral-500 hover:bg-red-950 hover:text-red-300"><Trash2 size={16}/></button></div></div>)}</div>}</>}
+      {tab==='payments'&&<><div className="mb-4 grid grid-cols-2 gap-2"><Metric label="Outstanding statements" value={money(statements.reduce((n,s)=>n+s.outstanding_minor,0))} tone="amber"/><Metric label="Payments recorded" value={money(payments.reduce((n,p)=>n+p.amount_minor,0))} tone="green"/></div><div className="mb-3 flex items-center justify-between"><h2 className="font-bold">Payment history</h2><Button onClick={()=>setModal('payment')}><Plus size={16}/> Record payment</Button></div>{payments.length===0?<Empty title="No bill payments yet" detail="Record a payment to reduce outstanding statement dues."/>:<div className="space-y-2">{payments.map(p=><div key={p.id} className="flex items-center justify-between gap-3 rounded-3xl border border-neutral-800 bg-neutral-900 p-4"><div className="min-w-0"><div className="truncate text-sm font-semibold">{p.card_name}</div><div className="mt-1 text-xs text-neutral-500">{day(p.paid_at)}{p.reference?` · ${p.reference}`:''}</div>{p.pending?<div className="mt-1 flex items-center gap-1 text-xs text-violet-300"><RefreshCw size={12} className="animate-spin"/> Syncing payment and allocations…</div>:p.unallocated_minor>0&&<div className="mt-1 text-xs text-amber-300">Unallocated: {money(p.unallocated_minor)}</div>}</div><div className="flex items-center gap-2"><span className="font-bold">{money(p.amount_minor)}</span><button aria-label="Delete payment" onClick={()=>{if(!p.pending&&confirm('Delete this payment and reverse its allocations?'))void deletePaymentOptimistic(p)}} disabled={p.pending} className="rounded-xl p-2 text-neutral-500 hover:bg-red-950 hover:text-red-300"><Trash2 size={16}/></button></div></div>)}</div>}</>}
 
       {tab==='settings'&&<>
         <section id="card-management" className="mb-4 rounded-3xl border border-neutral-800 bg-neutral-900 p-4"><div className="mb-3 flex items-center justify-between gap-3"><div><h2 className="font-bold">Credit cards</h2><p className="text-xs text-neutral-500">Add a card or update an existing card</p></div><Button className="shrink-0 whitespace-nowrap" onClick={()=>{setEditCard(null);setModal('card')}}><Plus size={15}/> <span className="whitespace-nowrap">Add Card</span></Button></div>{activeCards.length===0?<p className="text-sm text-neutral-500">No active cards yet. Use Add Card to get started.</p>:<div className="space-y-2">{activeCards.map(card=><div key={card.id} className="flex items-center gap-3 border-t border-neutral-800 pt-3"><div className="min-w-0 flex-1"><div className="truncate text-sm font-medium">{card.name}</div><div className="text-xs text-neutral-500">{card.bank_name}{card.last4?` •••• ${card.last4}`:''}</div></div><Button variant="secondary" onClick={()=>{setEditCard(card);setModal('card')}}><Pencil size={14}/> Edit</Button></div>)}</div>}</section>
@@ -236,9 +370,9 @@ export default function App() {
 
     {filtersOpen&&<div className="fixed inset-0 z-40"><button aria-label="Close filters" className="absolute inset-0 bg-black/65" onClick={()=>setFiltersOpen(false)}/><aside role="dialog" aria-modal="true" aria-label="Transaction filters" className="absolute inset-y-0 right-0 flex w-full max-w-sm flex-col border-l border-neutral-800 bg-neutral-950 shadow-2xl"><div className="flex items-center justify-between border-b border-neutral-800 p-4"><div className="flex items-center gap-3"><button onClick={()=>setFiltersOpen(false)} aria-label="Close filters" className="rounded-xl p-2 hover:bg-neutral-800"><ArrowLeft size={19}/></button><h2 className="text-lg font-bold">Filters</h2></div><button onClick={()=>setFilters({month:'',card_id:'',method:'',upi_app_id:'',category:'',q:filters.q,from:'',to:''})} className="text-sm font-semibold text-violet-300">Clear all</button></div><div className="flex-1 space-y-4 overflow-y-auto p-4"><Field label="Calendar month"><input type="month" className={inputClass} value={filters.month} onChange={e=>setFilters({...filters,month:e.target.value,from:'',to:''})}/></Field><Field label="Credit card"><select className={inputClass} value={filters.card_id} onChange={e=>setFilters({...filters,card_id:e.target.value})}><option value="">All cards</option>{cards.map(c=><option key={c.id} value={c.id}>{c.name} · {c.bank_name}</option>)}</select></Field><Field label="Payment method"><select className={inputClass} value={filters.method} onChange={e=>setFilters({...filters,method:e.target.value})}><option value="">All methods</option><option value="upi">UPI</option><option value="online">Online</option><option value="swipe">Swipe</option></select></Field><Field label="UPI application"><select className={inputClass} value={filters.upi_app_id} onChange={e=>setFilters({...filters,upi_app_id:e.target.value})}><option value="">All applications</option>{apps.map(a=><option key={a.id} value={a.id}>{a.name}{!a.active?' (inactive)':''}</option>)}</select></Field><Field label="Category"><select className={inputClass} value={filters.category} onChange={e=>setFilters({...filters,category:e.target.value})}><option value="">All categories</option>{[...new Set(txns.map(t=>t.category||'').filter(Boolean))].sort().map(c=><option key={c} value={c}>{c}</option>)}</select></Field><div className="grid grid-cols-2 gap-3"><Field label="From date"><input type="date" className={inputClass} value={filters.from} onChange={e=>setFilters({...filters,month:'',from:e.target.value})}/></Field><Field label="To date"><input type="date" className={inputClass} value={filters.to} onChange={e=>setFilters({...filters,month:'',to:e.target.value})}/></Field></div><div className="rounded-2xl bg-neutral-900 p-3 text-xs leading-5 text-neutral-500">All Transactions stays grouped by transaction calendar month. A card's detail screen uses that card's settlement-date billing cycles.</div></div><div className="border-t border-neutral-800 p-4"><Button className="w-full" onClick={()=>setFiltersOpen(false)}>Apply filters ({shownTxns.length})</Button></div></aside></div>}
 
-    {modal==='card'&&<CardForm initial={editCard} busy={busy} onClose={()=>setModal(null)} onSave={data=>void perform(async()=>{await request('cards',editCard?'PUT':'POST',editCard?{...data,id:editCard.id}:{...data});setModal(null);if(editCard&&activeCard?.id===editCard.id)setActiveCard({...activeCard,...data});},editCard?'Card updated':'Card added')}/>}
-    {modal==='txn'&&<TxnForm initial={editTxn} cards={activeCards} apps={apps} categories={categories} defaultCard={activeCard} busy={busy} onClose={()=>setModal(null)} onSave={saveTransaction} onDelete={editTxn?()=>{if(confirm('Delete this transaction? Locked statements must be unlocked first.'))void perform(async()=>{await request('transactions','DELETE',undefined,{id:String(editTxn.id)});setModal(null)},'Transaction deleted')}:undefined}/>}
-    {modal==='payment'&&<PaymentForm cards={activeCards} defaultCard={activeCard} busy={busy} onClose={()=>setModal(null)} onSave={data=>void perform(async()=>{await request('payments','POST',data);setModal(null);if(tab==='card')setTab('card');else setTab('payments')},'Payment recorded and allocated to oldest outstanding dues')}/>}
+    {modal==='card'&&<CardForm initial={editCard} busy={busy} onClose={()=>setModal(null)} onSave={data=>void saveCardOptimistic(data)}/>}
+    {modal==='txn'&&<TxnForm initial={editTxn} cards={activeCards.filter(c=>c.id>0)} apps={apps} categories={categories} defaultCard={activeCard} busy={busy} onClose={()=>setModal(null)} onSave={saveTransaction} onDelete={editTxn?()=>{if(confirm('Delete this transaction? Locked statements must be unlocked first.'))void deleteTransactionOptimistic(editTxn)}:undefined}/>}
+    {modal==='payment'&&<PaymentForm cards={activeCards.filter(c=>c.id>0)} defaultCard={activeCard} busy={busy} onClose={()=>setModal(null)} onSave={data=>void savePaymentOptimistic(data)}/>}
     {modal==='upi'&&<Modal title="Add UPI application" onClose={()=>setModal(null)}><UpiForm busy={busy} onSave={name=>void perform(async()=>{await request('upi-apps','POST',{name});setModal(null)},'UPI application added')}/></Modal>}
     {toast&&<Toast toast={toast} onClose={()=>setToast(null)}/>}
   </div>;

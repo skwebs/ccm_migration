@@ -26,3 +26,8 @@ The legacy frontend originally called `/api/index.php?action=<action>`. The migr
 - The UI's `Txn` type expects `card_id`, `card_name`, `particular`, `amount_minor`, `txn_at`, `settlement_date`, `payment_method`, `upi_app_id`, `upi_app_name`, `notes`, `category`, `tags`, and `has_attachment`.
 - Statement rows expose `amount_minor`, `bill_amount_minor`, `bank_amount_minor`, `confirmed_at`, `is_locked`, `paid_minor`, `outstanding_minor`, and `status`.
 - Do not send private receipt keys or database connection details to the client.
+
+
+## Frontend cache behavior
+
+The client persists the last bootstrap response in IndexedDB for immediate stale display. The API remains the source of truth; background bootstrap revalidation replaces cached data. Transaction writes are optimistic and revert locally on a rejected write. No API response or receipt is cached by the service worker.
