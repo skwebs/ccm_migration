@@ -14,3 +14,17 @@
 .txn-form .block>span.mb-2,.txn-form label>span.mb-2{margin-bottom:.35rem}
 .txn-form .space-y-3>:not([hidden])~:not([hidden]){margin-top:.65rem}
 @media(min-width:640px){.txn-actions{bottom:-1.25rem;margin-bottom:-1.25rem;padding-bottom:1rem}}
+
+/* Transaction entry uses a dedicated viewport instead of a scrolling dialog. */
+.txn-page{height:100dvh;height:100svh;overflow:hidden;padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}
+.txn-page-form{overflow:hidden;min-height:0;padding-bottom:0}
+.txn-page-actions{box-shadow:0 -8px 18px rgba(9,9,11,.45)}
+.txn-page input[type=date],.txn-page input[type=time]{min-width:0;font-size:.82rem}
+.txn-date-value::-webkit-calendar-picker-indicator,.txn-page input[type=time]::-webkit-calendar-picker-indicator{opacity:.75}
+@media(max-height:680px){.txn-page-form{gap:.45rem;padding-top:.45rem}.txn-page-form>label,.txn-page-form>button{padding-top:.5rem;padding-bottom:.5rem}.txn-page-form>div.rounded-2xl{padding-top:.35rem;padding-bottom:.35rem}.txn-page-form>div.space-y-2>button{padding:.55rem .75rem}.txn-page-form .txn-page-actions{padding-top:.45rem}.txn-page-form .txn-page-actions button{min-height:2.65rem;padding-top:.5rem;padding-bottom:.5rem}.txn-page-form>div.shrink-0 button{min-height:2.5rem;padding-top:.45rem;padding-bottom:.45rem}}
+
+/* Transaction page: center content to the same reading width as the rest of the app. */
+.txn-page-form{width:100%;max-width:48rem}
+.txn-page input[type=date]:focus,.txn-page input[type=date]:focus-visible,
+.txn-page input[type=time]:focus,.txn-page input[type=time]:focus-visible{outline:none!important;box-shadow:none!important;border-color:transparent!important}
+.txn-page label:focus-within input[type=date],.txn-page label:focus-within input[type=time]{outline:none!important;box-shadow:none!important}
