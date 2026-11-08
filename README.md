@@ -5,6 +5,8 @@ This is the migration build of the existing Card Ledger / Credit Card Manager. T
 ## Existing functionality retained in the baseline
 
 - Responsive dark UI, dashboard, Transactions, Settings, Card details, Payments, and bottom navigation.
+- Persistent IndexedDB bootstrap cache for instant stale-data display, followed by background server revalidation.
+- Optimistic transaction create/edit/delete, card create/edit, and payment-history create/delete with rollback on API failure and a non-blocking sync status.
 - First-run account setup, login/logout, CSRF token, remembered login, and server-side login throttling.
 - Credit card create/edit/archive, bank, last four digits, credit limit, billing day/rule, and due days.
 - Transaction create/edit/delete, integer-paise amounts, transaction timestamp, settlement date, UPI/online/swipe methods, UPI app snapshot, category, tags, notes, and optional receipt attachment.
@@ -20,7 +22,7 @@ This is the migration build of the existing Card Ledger / Credit Card Manager. T
 - TypeScript serverless API under `api/`.
 - Neon PostgreSQL, using server-only `DATABASE_URL`.
 - Optional private Cloudflare R2 bucket for receipt images.
-- Vercel deployment; a custom domain or the existing `/credit-card/` path can be routed through `vercel.json`.
+- Vercel deployment at the domain root (for example, `https://cred.isatish.in/`).
 
 ## 1. Configure a test environment
 
@@ -83,7 +85,7 @@ npm run build
 
 Deploy the project to Vercel and add `DATABASE_URL`, `SESSION_SECRET`, and (if using receipts) the R2 variables under Project Settings → Environment Variables. Run the numbered SQL migrations against the intended Neon database before testing the deployment.
 
-`vite.config.ts` keeps the existing `/credit-card/` production base, and `vercel.json` contains rewrites for that path and the API. Verify the generated routes in a Vercel preview before connecting a custom domain or switching traffic. If deploying to a domain root instead of `/credit-card/`, adjust the Vite base and PWA manifest deliberately; do not mix the two configurations.
+`vite.config.ts` uses `/` as the production base because this deployment serves from the domain root. `vercel.json` keeps the API function configuration and relies on Vercel file-system routing for `/api`. The PWA manifest and service worker are also configured for root scope. Verify the generated routes in a Vercel preview before promoting the deployment.
 
 ## 6. Pre-cutover checklist
 
@@ -116,3 +118,10 @@ scripts/test-billing.mjs        Billing-cycle boundary tests
 vercel.json                     Function and subpath routing
 .env.example                    Demo-only environment template
 ```
+
+
+## Local cache and synchronization
+
+The frontend stores the last authenticated bootstrap snapshot in browser IndexedDB and shows it before background session validation/revalidation completes. It refreshes on reconnect and when returning to a visible tab. Transaction create/edit/delete updates the UI immediately and rolls back that transaction if the API rejects the change. The API and NeonDB remain authoritative; a successful write is followed by a bootstrap refresh.
+
+The local snapshot contains financial records and is not encrypted by the browser. Use this only on a trusted device/profile, keep the device lock enabled, and log out when sharing the device. Logout and an unauthenticated session response clear the cached snapshot. Browser storage may be cleared by the user or browser at any time. This is not a durable offline write queue: failed mutations are rolled back rather than silently queued.

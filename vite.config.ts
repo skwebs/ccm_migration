@@ -1,9 +1,9 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-export default defineConfig(({ command }) => ({
-  // Local dev serves at localhost root; production is deployed at /credit-card/.
-  base: command === 'build' ? '/credit-card/' : '/',
+export default defineConfig({
+  // This app is served from the domain root, not /credit-card/.
+  base: '/',
   plugins: [react()],
   build: { outDir: 'dist', emptyOutDir: true },
-}));
+});
