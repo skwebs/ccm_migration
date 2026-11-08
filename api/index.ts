@@ -39,7 +39,59 @@ async function ensureStatements(cardId=null){const cards=await rows(`SELECT * FR
     const reconciled=await db().query(`UPDATE statements s SET amount_minor=COALESCE((SELECT SUM(t.amount_minor) FROM transactions t WHERE t.card_id=s.card_id AND t.settlement_date BETWEEN s.cycle_start AND s.cycle_end),0),confirmed_at=NULL WHERE s.card_id=$1 AND s.is_locked=FALSE AND s.amount_minor<>COALESCE((SELECT SUM(t.amount_minor) FROM transactions t WHERE t.card_id=s.card_id AND t.settlement_date BETWEEN s.cycle_start AND s.cycle_end),0)`,[c.id]);if(reconciled.rowCount)changed=true;if(changed)await rebalanceCardPayments(Number(c.id));}}
 async function settingMap(){const rs=await rows("SELECT setting_key,setting_value FROM app_settings WHERE setting_key IN ('monthly_budget_minor','categories_json')");const m=Object.fromEntries(rs.map(r=>[r.setting_key,r.setting_value]));let categories;try{categories=JSON.parse(m.categories_json||'[]')}catch{categories=[]}if(!Array.isArray(categories)||!categories.length)categories=defaultCategories;return {monthly_budget_minor:Number(m.monthly_budget_minor||0),categories};}
 async function txnRows(where='',params=[],limit=null){const sql=`SELECT t.id,t.card_id,c.name card_name,t.particular,t.category,t.tags,t.amount_minor,t.txn_at,t.settlement_date,t.payment_method,t.upi_app_id,t.upi_app_name,t.notes,CASE WHEN t.attachment_key<>'' THEN 1 ELSE 0 END has_attachment FROM transactions t JOIN credit_cards c ON c.id=t.card_id ${where} ORDER BY t.txn_at DESC,t.id DESC ${limit?'LIMIT '+limit:''}`;return rows(sql,params);}
-async function dashboard(){await ensureStatements();const cards=(await rows('SELECT * FROM credit_cards ORDER BY active DESC,name')).map(c=>({...c,active:c.active?1:0}));const sts=await statementRows();const previous=sts.reduce((s,x)=>s+minor(x.outstanding_minor),0);const active=[];for(const c of cards){if(!c.active)continue;const cy=cycleFor(c,new Date().toLocaleDateString('en-CA',{timeZone:process.env.APP_TIME_ZONE||'Asia/Kolkata'}));const cur=minor((await rows('SELECT COALESCE(SUM(amount_minor),0)::bigint n FROM transactions WHERE card_id=$1 AND settlement_date BETWEEN $2 AND $3',[c.id,cy.start,cy.end]))[0].n);const dues=sts.filter(s=>Number(s.card_id)===Number(c.id)).reduce((s,x)=>s+minor(x.outstanding_minor),0);active.push({...c,active:c.active?1:0,current_minor:cur,dues_minor:dues,cycle_start:cy.start,cycle_end:cy.end});}const latest=await txnRows('',[],5);return {cards:active,previous_dues_minor:previous,current_expenses_minor:active.reduce((s,c)=>s+minor(c.current_minor),0),latest};}
+async function dashboard(){
+  await ensureStatements();
+  const today=new Date().toLocaleDateString('en-CA',{timeZone:process.env.APP_TIME_ZONE||'Asia/Kolkata'});
+  const budgetMonth=today.slice(0,7);
+  const [year,month]=budgetMonth.split('-').map(Number);
+  const nextDate=new Date(Date.UTC(year,month,1));
+  const nextBudgetMonth=`${nextDate.getUTCFullYear()}-${String(nextDate.getUTCMonth()+1).padStart(2,'0')}`;
+  const cards=(await rows('SELECT * FROM credit_cards ORDER BY active DESC,name')).map(c=>({...c,active:c.active?1:0}));
+  const active=cards.filter(c=>c.active);
+  const cardById=new Map(active.map(c=>[Number(c.id),c]));
+  const sts=await statementRows();
+  const previous=sts.reduce((sum,s)=>sum+minor(s.outstanding_minor),0);
+  const activeCards=[];
+  for(const c of active){
+    const cy=cycleFor(c,today);
+    const cur=minor((await rows('SELECT COALESCE(SUM(amount_minor),0)::bigint n FROM transactions WHERE card_id=$1 AND settlement_date BETWEEN $2 AND $3',[c.id,cy.start,cy.end]))[0].n);
+    const dues=sts.filter(s=>Number(s.card_id)===Number(c.id)).reduce((sum,s)=>sum+minor(s.outstanding_minor),0);
+    activeCards.push({...c,current_minor:cur,dues_minor:dues,cycle_start:cy.start,cycle_end:cy.end});
+  }
+
+  // Attribute every transaction to the month its statement is generated.
+  // Settlement date selects the cycle; billing_rule controls the cycle boundaries.
+  // The statement-generation date is the day immediately after cycle_end.
+  let currentBudgetExpenses=0,nextBudgetExpenses=0;
+  const budgetTxns=await rows(`SELECT t.card_id,t.settlement_date::text settlement_date,t.amount_minor
+    FROM transactions t JOIN credit_cards c ON c.id=t.card_id
+    WHERE c.active=TRUE`);
+  for(const t of budgetTxns){
+    const card=cardById.get(Number(t.card_id));
+    if(!card||!t.settlement_date)continue;
+    const cy=cycleFor(card,String(t.settlement_date).slice(0,10));
+    const matchingStatement=sts.find(s=>Number(s.card_id)===Number(t.card_id)
+      &&String(s.cycle_start).slice(0,10)===cy.start
+      &&String(s.cycle_end).slice(0,10)===cy.end);
+    const generationDate=matchingStatement?.statement_date
+      ?String(matchingStatement.statement_date).slice(0,10)
+      :cy.statement_date;
+    const statementMonth=generationDate.slice(0,7);
+    const amount=minor(t.amount_minor);
+    if(statementMonth===budgetMonth)currentBudgetExpenses+=amount;
+    else if(statementMonth===nextBudgetMonth)nextBudgetExpenses+=amount;
+  }
+  const latest=await txnRows('',[],5);
+  return {
+    cards:activeCards,
+    previous_dues_minor:previous,
+    current_expenses_minor:currentBudgetExpenses,
+    budget_month:budgetMonth,
+    next_budget_month:nextBudgetMonth,
+    next_budget_expenses_minor:nextBudgetExpenses,
+    latest
+  };
+}
 function r2Client(){if(!process.env.R2_ACCOUNT_ID||!process.env.R2_ACCESS_KEY_ID||!process.env.R2_SECRET_ACCESS_KEY||!process.env.R2_BUCKET_NAME)fail(503,'Receipt storage is not configured. Set the private Cloudflare R2 values in Vercel environment settings.');return new S3Client({region:'auto',endpoint:process.env.R2_ENDPOINT||`https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,credentials:{accessKeyId:process.env.R2_ACCESS_KEY_ID,secretAccessKey:process.env.R2_SECRET_ACCESS_KEY}});}
 async function multipart(req): Promise<any>{return await new Promise((resolve,reject)=>{const bb=Busboy({headers:req.headers,limits:{fileSize:5*1024*1024,files:1,fields:5}});const fields={};let file=null,tooLarge=false;bb.on('field',(n,v)=>fields[n]=v);bb.on('file',(name,stream,info)=>{const chunks=[];file={name,filename:info.filename,mime:info.mimeType};stream.on('limit',()=>tooLarge=true);stream.on('data',c=>chunks.push(c));stream.on('end',()=>{file.buffer=Buffer.concat(chunks);});});bb.on('error',reject);bb.on('finish',()=>tooLarge?reject(Object.assign(new Error('Attachment must be 5 MB or smaller.'),{status:413})):resolve({fields,file}));req.pipe(bb);});}
 function imageType(buffer){if(buffer.length>=3&&buffer[0]===0xff&&buffer[1]===0xd8&&buffer[2]===0xff)return {mime:'image/jpeg',ext:'jpg'};if(buffer.length>=8&&buffer.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))return {mime:'image/png',ext:'png'};if(buffer.length>=12&&buffer.toString('ascii',0,4)==='RIFF'&&buffer.toString('ascii',8,12)==='WEBP')return {mime:'image/webp',ext:'webp'};return null;}
